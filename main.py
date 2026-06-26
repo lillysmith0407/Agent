@@ -16,7 +16,7 @@ app.add_middleware(
 )
 
 # -----------------------------
-# Request Model (new features)
+# Request Model
 # -----------------------------
 class Query(BaseModel):
     message: str
@@ -28,10 +28,10 @@ API_KEY = os.getenv("API_KEY")
 MODEL = "llama-3.1-8b-instant"
 
 # -----------------------------
-# Inclusive, Multi‑Purpose System Prompt
+# Updated System Prompt (Visual + Examples)
 # -----------------------------
 BASE_PROMPT = """
-You are a multi-purpose Academic Research Assistant designed to help users understand, analyze, and synthesize information with clarity, precision, and inclusivity.
+You are a multi-purpose Academic & Learning Research Assistant designed to help users understand, analyze, and synthesize information with clarity, precision, and inclusivity.
 
 Your role is to support:
 - students at any level
@@ -59,7 +59,7 @@ Learning Styles:
 - Detailed: step-by-step, thorough explanations
 - Practical: real-world examples and applications
 - Theoretical: frameworks, models, conceptual structure
-- Visual: metaphors, analogies, conceptual imagery
+- Visual: use vivid metaphors, analogies, mental imagery, and “picture this…” style explanations
 
 Core Abilities:
 - summarize long or complex texts into structured briefs
@@ -84,10 +84,11 @@ Always structure your output using the following sections:
 2. Key Insights
 3. Analysis
 4. Implications
+5. Examples
 """
 
 # -----------------------------
-# Dynamic Feature Logic
+# Dynamic Feature Logic (Visual Mode Enhanced)
 # -----------------------------
 def build_dynamic_instructions(depth: str, style: str, mode: str):
     instructions = ""
@@ -97,7 +98,16 @@ def build_dynamic_instructions(depth: str, style: str, mode: str):
         instructions += f"\nAdjust explanation depth to: {depth}."
 
     # Learning Style
-    if style in ["concise", "detailed", "practical", "theoretical", "visual"]:
+    if style == "visual":
+        instructions += """
+Use strong visual metaphors and analogies. 
+Use “imagine…”, “picture this…”, or “visualize…” to anchor concepts.
+Include at least:
+- one vivid metaphor
+- one step-by-step visual analogy
+- one spatial or physical comparison
+"""
+    elif style in ["concise", "detailed", "practical", "theoretical"]:
         instructions += f"\nAdapt communication style to: {style}."
 
     # Mode
