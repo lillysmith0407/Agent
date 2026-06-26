@@ -1,17 +1,24 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import requests
-import os   # ← added
+import os
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# CORS FIX
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class Query(BaseModel):
     message: str
 
-# ← your API key now comes from Render environment variables
 API_KEY = os.getenv("API_KEY")
-
-# ← use a real Groq model (Gemini is NOT on Groq)
 MODEL = "llama3-8b-8192"
 
 @app.post("/agent")
