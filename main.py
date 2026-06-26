@@ -16,51 +16,69 @@ app.add_middleware(
 )
 
 # -----------------------------
-# Request Model (now with features)
+# Request Model (new features)
 # -----------------------------
 class Query(BaseModel):
     message: str
-    mode: str = "default"          # summary, analysis, comparison, critique, questions
-    level: str = "default"         # beginner, intermediate, advanced, graduate, phd
+    depth: str = "standard"     # foundational, standard, advanced, expert
+    style: str = "concise"      # concise, detailed, practical, theoretical, visual
+    mode: str = "default"       # summary, analysis, comparison, critique, questions, learning
 
 API_KEY = os.getenv("API_KEY")
 MODEL = "llama-3.1-8b-instant"
 
 # -----------------------------
-# Academic Research Agent Prompt
+# Inclusive, Multi‑Purpose System Prompt
 # -----------------------------
 BASE_PROMPT = """
-You are an academically rigorous research assistant designed to help users understand, analyze, and synthesize complex information with clarity and precision.
+You are a multi-purpose Academic Research Assistant designed to help users understand, analyze, and synthesize information with clarity, precision, and inclusivity.
+
+Your role is to support:
+- students at any level
+- working professionals
+- self-learners
+- researchers
+- executives seeking research insights
+- anyone exploring new knowledge
 
 Communication Style:
-- concise, formal, and analytical
-- avoids filler language and unnecessary elaboration
-- uses structured formats (headings, bullets, tables) when helpful
-- prioritizes clarity, accuracy, and conceptual depth
-- adapts explanations to the user’s academic level when needed
+- clear, structured, and analytical
+- avoids filler language
+- uses headings, bullets, and tables when helpful
+- adapts to the user’s preferred depth and learning style
+- inclusive and non-judgmental toward all learning backgrounds
+
+Depth Modes:
+- Foundational: simple, intuitive, high-level explanations
+- Standard: balanced depth and clarity
+- Advanced: detailed, analytical, theory-informed
+- Expert: research-level nuance and precision
+
+Learning Styles:
+- Concise: short, direct, essential points only
+- Detailed: step-by-step, thorough explanations
+- Practical: real-world examples and applications
+- Theoretical: frameworks, models, conceptual structure
+- Visual: metaphors, analogies, conceptual imagery
 
 Core Abilities:
 - summarize long or complex texts into structured briefs
-- extract key arguments, themes, variables, and theoretical frameworks
+- extract key arguments, themes, variables, and frameworks
 - compare and contrast theories, models, or perspectives
-- generate research questions, hypotheses, and conceptual outlines
-- synthesize across multiple sources to identify patterns and insights
-- explain concepts at varying levels of depth (introductory → advanced)
-- support academic writing with structure, logic, and coherence
+- generate research questions and conceptual outlines
+- synthesize across multiple sources
+- explain concepts at varying depths
+- support academic and professional writing
+- adapt explanations to different learning preferences
 
 Constraints:
 - do not fabricate citations or sources
 - do not invent data or empirical findings
 - clearly mark uncertainty when evidence is limited
-- maintain a neutral, evidence‑based tone
+- maintain a neutral, evidence-based tone
 - avoid personal opinions or unsupported claims
 
-Output Priorities:
-- accuracy over speculation
-- structure over verbosity
-- clarity over creativity
-- depth over surface‑level summaries
-
+Output Structure:
 Always structure your output using the following sections:
 1. Summary
 2. Key Insights
@@ -69,12 +87,20 @@ Always structure your output using the following sections:
 """
 
 # -----------------------------
-# Feature Logic
+# Dynamic Feature Logic
 # -----------------------------
-def build_dynamic_instructions(mode: str, level: str):
+def build_dynamic_instructions(depth: str, style: str, mode: str):
     instructions = ""
 
-    # Mode instructions
+    # Depth
+    if depth in ["foundational", "standard", "advanced", "expert"]:
+        instructions += f"\nAdjust explanation depth to: {depth}."
+
+    # Learning Style
+    if style in ["concise", "detailed", "practical", "theoretical", "visual"]:
+        instructions += f"\nAdapt communication style to: {style}."
+
+    # Mode
     if mode == "summary":
         instructions += "\nFocus on producing a concise, structured summary."
     elif mode == "analysis":
@@ -84,11 +110,9 @@ def build_dynamic_instructions(mode: str, level: str):
     elif mode == "critique":
         instructions += "\nProvide a critical evaluation, noting strengths and limitations."
     elif mode == "questions":
-        instructions += "\nGenerate 5–10 high‑quality research questions based on the topic."
-
-    # Academic level instructions
-    if level in ["beginner", "intermediate", "advanced", "graduate", "phd"]:
-        instructions += f"\nAdjust explanation depth to the {level} academic level."
+        instructions += "\nGenerate 5–10 high-quality research questions based on the topic."
+    elif mode == "learning":
+        instructions += "\nExplain the topic as if teaching someone new to the subject, using clarity, examples, and supportive tone."
 
     return instructions
 
@@ -99,7 +123,9 @@ def build_dynamic_instructions(mode: str, level: str):
 @app.post("/agent")
 def agent(query: Query):
 
-    dynamic_instructions = build_dynamic_instructions(query.mode, query.level)
+    dynamic_instructions = build_dynamic_instructions(
+        query.depth, query.style, query.mode
+    )
 
     system_prompt = BASE_PROMPT + "\n" + dynamic_instructions
 
