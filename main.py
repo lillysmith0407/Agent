@@ -19,7 +19,7 @@ class Query(BaseModel):
     message: str
 
 API_KEY = os.getenv("API_KEY")
-MODEL = "llama3-8b-8192"
+MODEL = "llama3-8b-instant"
 
 @app.post("/agent")
 def agent(query: Query):
