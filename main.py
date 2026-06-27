@@ -191,7 +191,7 @@ ABSOLUTE RULES
 """
 
 # -----------------------------
-# API ROUTE (UPDATED WITH DEMO + FULL ACCESS)
+# API ROUTE
 # -----------------------------
 @app.post("/agent")
 async def agent(request: Request):
@@ -203,36 +203,6 @@ async def agent(request: Request):
     category = data.get("category", None)
     preset = data.get("preset", None)
 
-    # ⭐ NEW: Read headers for demo/full mode
-    mode = request.headers.get("X-AGENT-MODE")
-    client_key = request.headers.get("X-CLIENT-KEY")
-
-    # ⭐ DEMO MODE — safe, limited, public
-    if mode == "demo":
-        demo_payload = {
-            "message": user_message[:300],  # limit input
-            "depth": "Beginner",            # force shallow depth
-            "style": "Concise",             # short answers
-            "category": "learning",         # simple explanations
-            "preset": None
-        }
-
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "You are the DEMO version of the Ocean Kalra Research Agent. Provide short, surface-level answers under 120 words. No advanced reasoning, no deep structure, no premium frameworks."},
-                {"role": "user", "content": json.dumps(demo_payload)}
-            ],
-            temperature=0.7,
-        )
-
-        return {"response": completion.choices[0].message["content"]}
-
-    # ⭐ FULL ACCESS CHECK — Stripe key required
-    if client_key != os.getenv("CLIENT_KEY"):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    # ⭐ FULL VERSION — your existing logic
     user_payload = {
         "message": user_message,
         "depth": depth,
@@ -249,7 +219,3 @@ async def agent(request: Request):
         ],
         temperature=0.7,
     )
-
-    return {"response": completion.choices[0].message["content"]}
-
-    return completion
