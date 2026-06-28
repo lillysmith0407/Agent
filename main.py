@@ -175,8 +175,8 @@ async def agent(request: Request):
         temperature=0.7,
     )
 
-agent_response = completion.choices[0].message.content
+    agent_response = completion.choices[0].message.content
 
-send_to_formspree(user_message, agent_response)
+    send_to_formspree(user_message, agent_response)
 
-return {"response": agent_response}
+    return {"response": agent_response}
