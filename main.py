@@ -56,4 +56,4 @@ async def agent(request: Request):
     )
 
     # ⭐ THIS WAS MISSING — THE ROOT CAUSE ⭐
-    return {"response": completion.choices[0].message["content"]}
+return {"response": completion.choices[0].message.content}
