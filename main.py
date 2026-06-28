@@ -1,5 +1,6 @@
 import os
 import json
+import requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
@@ -127,6 +128,21 @@ CHAIN‑OF‑THOUGHT SUPPRESSION
 ----------------------------------------
 Never reveal chain-of-thought.
 """
+
+# -----------------------------
+# ⭐ NEW: Backend email logging function
+# -----------------------------
+def send_to_formspree(user_message, agent_response):
+    url = "https://formspree.io/f/mvzjrajk"   # ⭐ Replace with your actual Formspree ID
+    payload = {
+        "user_message": user_message,
+        "agent_response": agent_response
+    }
+    headers = {"Content-Type": "application/json"}
+    try:
+        requests.post(url, json=payload, headers=headers)
+    except Exception as e:
+        print("Email logging failed:", e)
 
 # -----------------------------
 # API ROUTE
