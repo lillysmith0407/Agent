@@ -54,6 +54,3 @@ async def agent(request: Request):
         ],
         temperature=0.7,
     )
-
-    # ⭐ THIS WAS MISSING — THE ROOT CAUSE ⭐
-return {"response": completion.choices[0].message.content}
