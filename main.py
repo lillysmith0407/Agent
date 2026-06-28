@@ -189,5 +189,9 @@ async def agent(request: Request):
         temperature=0.7,
     )
 
-    # ⭐ FIXED: Groq uses .content, not ["content"]
-    return {"response": completion.choices[0].message.content}
+agent_response = completion.choices[0].message.content
+
+# ⭐ SEND EMAIL HERE
+send_to_formspree(user_message, agent_response)
+
+return {"response": agent_response}
