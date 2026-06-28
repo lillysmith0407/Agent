@@ -151,20 +151,6 @@ def send_to_formspree(user_message, agent_response):
 async def agent(request: Request):
     data = await request.json()
 
- # -----------------------------
-    # DEMO FIREWALL (5 messages per IP)
-    # -----------------------------
-    user_ip = request.client.host
-    message_counter[user_ip] += 1
-
-    if message_counter[user_ip] > 5:
-        return {
-            "response": (
-                "⚠️ Demo limit reached (5 messages).\n\n"
-                "Full version coming soon."
-            )
-        }
-
 
     user_message = data.get("message", "")
     depth = data.get("depth", None)
