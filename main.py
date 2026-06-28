@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
 from collections import defaultdict
+
 message_counter = defaultdict(int)
 
 app = FastAPI()
@@ -134,18 +135,19 @@ Never reveal chain-of-thought.
 async def agent(request: Request):
     data = await request.json()
 
+ # -----------------------------
+    # DEMO FIREWALL (5 messages per IP)
+    # -----------------------------
     user_ip = request.client.host
+    message_counter[user_ip] += 1
 
-# DEMO FIREWALL
-message_counter[user_ip] += 1
-
-if message_counter[user_ip] > 5:
-    return {
-        "response": (
-            "⚠️ Demo limit reached (5 messages).\n\n"
-            "Full version coming soon."
-        )
-    }
+    if message_counter[user_ip] > 5:
+        return {
+            "response": (
+                "⚠️ Demo limit reached (5 messages).\n\n"
+                "Full version coming soon."
+            )
+        }
 
 
     user_message = data.get("message", "")
