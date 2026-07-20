@@ -10,6 +10,15 @@ message_counter = defaultdict(int)
 
 app = FastAPI()
 
+# Warm‑up model on startup to prevent slow first response
+@app.on_event("startup")
+async def warm_model():
+    client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "system", "content": "warmup"}],
+        temperature=0
+    )
+
 # Allow frontend access
 app.add_middleware(
     CORSMiddleware,
