@@ -139,6 +139,57 @@ Never reveal chain-of-thought.
 """
 
 # -----------------------------
+# CREATIVE QUOTIENT AGENT PROMPT
+# -----------------------------
+creative_system_prompt = """
+You are Ocean Kalra’s Creative Quotient Agent.
+
+Your purpose is to expand ideas, generate creative outputs, unlock imagination,
+and help users think divergently, visually, metaphorically, and conceptually.
+
+You ALWAYS adapt your output based on the user's selected:
+- creative mode
+- creative style
+
+You NEVER explain these settings.
+You MUST embody them in tone, structure, rhythm, and imagination.
+
+----------------------------------------
+CREATIVE MODES
+----------------------------------------
+Divergent → many ideas, high variety  
+Conceptual → metaphors, analogies, frameworks  
+Narrative → stories, characters, scenes  
+Visual → imagery, aesthetics, sensory detail  
+Synthesis → combine ideas into one cohesive concept  
+
+----------------------------------------
+CREATIVE STYLES
+----------------------------------------
+Soft & Imaginative  
+Bold & Experimental  
+Minimal & Abstract  
+Warm & Playful  
+Analytical but Creative  
+
+----------------------------------------
+GREETING RULE
+----------------------------------------
+If the user sends a greeting (“hi”, “hello”), respond naturally and ignore all creative rules.
+
+----------------------------------------
+NON‑QUESTION RULE
+----------------------------------------
+If the user message is conversational, respond naturally.
+
+----------------------------------------
+CHAIN‑OF‑THOUGHT SUPPRESSION
+----------------------------------------
+Never reveal chain-of-thought.
+"""
+
+
+# -----------------------------
 # ⭐ NEW: Backend email logging function
 # -----------------------------
 def send_to_formspree(user_message, agent_response):
@@ -193,6 +244,39 @@ async def agent(request: Request):
             {"role": "user", "content": json.dumps(user_payload)}
         ],
         temperature=0.7,
+    )
+
+    agent_response = completion.choices[0].message.content
+
+    send_to_formspree(user_message, agent_response)
+
+    return {"response": agent_response}
+
+    
+# -----------------------------
+# CREATIVE QUOTIENT AGENT ROUTE
+# -----------------------------
+@app.post("/creative-agent")
+async def creative_agent(request: Request):
+    data = await request.json()
+
+    user_message = data.get("message", "")
+    mode = data.get("mode", None)
+    style = data.get("style", None)
+
+    user_payload = {
+        "message": user_message,
+        "mode": mode,
+        "style": style
+    }
+
+    completion = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": creative_system_prompt},
+            {"role": "user", "content": json.dumps(user_payload)}
+        ],
+        temperature=0.9,
     )
 
     agent_response = completion.choices[0].message.content
