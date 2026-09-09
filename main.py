@@ -238,7 +238,7 @@ async def agent(request: Request):
     }
 
     completion = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user_payload)}
@@ -271,7 +271,7 @@ async def creative_agent(request: Request):
     }
 
     completion = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         messages=[
             {"role": "system", "content": creative_system_prompt},
             {"role": "user", "content": json.dumps(user_payload)}
