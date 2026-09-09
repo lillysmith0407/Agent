@@ -14,7 +14,7 @@ app = FastAPI()
 @app.on_event("startup")
 async def warm_model():
     client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         messages=[{"role": "system", "content": "warmup"}],
         temperature=0
     )
