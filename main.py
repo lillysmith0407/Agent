@@ -14,7 +14,7 @@ app = FastAPI()
 @app.on_event("startup")
 async def warm_model():
     client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model="meta‑llama/llama‑3.1‑70b‑versatile",
         messages=[{"role": "system", "content": "warmup"}],
         temperature=0
     )
@@ -238,7 +238,7 @@ async def agent(request: Request):
     }
 
     completion = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model="meta‑llama/llama‑3.1‑70b‑versatile",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user_payload)}
@@ -271,7 +271,7 @@ async def creative_agent(request: Request):
     }
 
     completion = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model="meta‑llama/llama‑3.1‑70b‑versatile",
         messages=[
             {"role": "system", "content": creative_system_prompt},
             {"role": "user", "content": json.dumps(user_payload)}
