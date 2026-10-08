@@ -1,42 +1,109 @@
 import os
 import json
+import time
+import logging
+from collections import defaultdict
+from typing import Literal, Optional
+
 import requests
-from fastapi import FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
-from collections import defaultdict
+from pydantic import BaseModel, Field
 
-message_counter = defaultdict(int)
+logger = logging.getLogger("agents")
+
+# -----------------------------
+# SETUP
+# -----------------------------
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise RuntimeError("API_KEY environment variable is not set.")
+client = Groq(api_key=API_KEY)
+
+MODEL = "openai/gpt-oss-120b"
+REQUEST_TIMEOUT = 30      # seconds
+MAX_TOKENS = 4000         # reasoning tokens count toward this, so leave headroom
+FORMSPREE_URL = "https://formspree.io/f/mvzjrajk"
+
+# Set ALLOWED_ORIGINS on Render, e.g. "https://oceankalra.com,https://www.oceankalra.com"
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/health")
 async def health():
     return {"ok": True}
 
-# Warm‑up model on startup to prevent slow first response
-@app.on_event("startup")
-async def warm_model():
-    client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[{"role": "system", "content": "warmup"}],
-        temperature=0
-    )
-
-# Allow frontend access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Load API key safely
-API_KEY = os.getenv("API_KEY")
-client = Groq(api_key=API_KEY)
 
 # -----------------------------
-# ADVANCED SYSTEM PROMPT
+# HELPERS
+# -----------------------------
+def client_ip(request: Request) -> str:
+    """Behind Render's proxy, request.client.host is the proxy, not the visitor."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+_hits = defaultdict(list)
+
+
+def rate_limit(request: Request, bucket: str, limit: int = 12, window: int = 60) -> None:
+    key = (bucket, client_ip(request))
+    now = time.time()
+    _hits[key] = [t for t in _hits[key] if now - t < window]
+    if len(_hits[key]) >= limit:
+        raise HTTPException(status_code=429, detail="Too many requests. Wait a moment and try again.")
+    _hits[key].append(now)
+
+
+def send_to_formspree(user_message: str, agent_response: str) -> None:
+    try:
+        requests.post(
+            FORMSPREE_URL,
+            json={"user_message": user_message, "agent_response": agent_response},
+            headers={"Content-Type": "application/json"},
+            timeout=5,
+        )
+    except Exception:
+        logger.exception("Formspree logging failed")
+
+
+async def ask_model(system: str, user: str, temperature: float) -> str:
+    try:
+        # The Groq client is synchronous, so run it off the event loop.
+        completion = await run_in_threadpool(
+            client.chat.completions.create,
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=temperature,
+            max_tokens=MAX_TOKENS,
+            timeout=REQUEST_TIMEOUT,
+        )
+        text = (completion.choices[0].message.content or "").strip()
+    except Exception:
+        logger.exception("Model call failed")
+        raise HTTPException(status_code=502, detail="The agent is unavailable right now. Please try again.")
+    if not text:
+        raise HTTPException(status_code=502, detail="The agent returned an empty response.")
+    return text
+
+
+# -----------------------------
+# RESEARCH AGENT PROMPT
 # -----------------------------
 system_prompt = """
 You are Ocean Kalra’s Research Agent.
@@ -228,124 +295,13 @@ RESPONSE FORMAT
 CONVERSATIONAL MESSAGES
 If the user sends a greeting, small talk, or a non-task message, reply naturally and briefly. Skip all structure.
 
-REASONING
-Share conclusions and a short rationale when it helps the user trust the advice. Don't expose raw internal reasoning or step-by-step scratch work.
-"""
 TASK OUTPUT
 If asked to write a document, write it in full Markdown with a # title and ## sections. Task requests override length and brevity preferences.
 If asked for a JSON object in a json fence, reply with only that JSON.
 
-# -----------------------------
-# ⭐ NEW: Backend email logging function
-# -----------------------------
-def send_to_formspree(user_message, agent_response):
-    url = "https://formspree.io/f/mvzjrajk"   # ⭐ Replace with your actual Formspree ID
-    payload = {
-        "user_message": user_message,
-        "agent_response": agent_response
-    }
-    headers = {"Content-Type": "application/json"}
-    try:
-        requests.post(url, json=payload, headers=headers)
-    except Exception as e:
-        print("Email logging failed:", e)
-
-# -----------------------------
-# API ROUTE
-# -----------------------------
-@app.post("/agent")
-async def agent(request: Request):
-    data = await request.json()
-
-    # DEMO FIREWALL
-    user_ip = request.client.host
-    message_counter[user_ip] += 1
-
-    if message_counter[user_ip] > 20:
-        return {
-            "response": (
-                "⚠️ Demo limit reached (5 messages).\n\n"
-                "Full version coming soon."
-            )
-        }
-
-    user_message = data.get("message", "")
-    depth = data.get("depth", None)
-    style = data.get("style", None)
-    category = data.get("category", None)
-    preset = data.get("preset", None)
-
-    user_payload = {
-        "message": user_message,
-        "depth": depth,
-        "style": style,
-        "category": category,
-        "preset": preset
-    }
-
-    completion = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(user_payload)}
-        ],
-        temperature=0.7,
-    )
-
-    agent_response = completion.choices[0].message.content
-
-    send_to_formspree(user_message, agent_response)
-
-    return {"response": agent_response}
-
-    
-# -----------------------------
-# CREATIVE QUOTIENT AGENT ROUTE
-# -----------------------------
-@app.post("/creative-agent")
-async def creative_agent(request: Request):
-    data = await request.json()
-
-    user_message = data.get("message", "")
-    mode = data.get("mode", None)
-    style = data.get("style", None)
-
-    user_payload = {
-        "message": user_message,
-        "mode": mode,
-        "style": style
-    }
-
-    completion = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[
-            {"role": "system", "content": creative_system_prompt},
-            {"role": "user", "content": json.dumps(user_payload)}
-        ],
-        temperature=0.9,
-    )
-
-    agent_response = completion.choices[0].message.content
-
-    send_to_formspree(user_message, agent_response)
-
-    return {"response": agent_response}
-
-# -----------------------------
-# MOREIN V.1 — Productivity + Thinking Partner Agent Route
-# -----------------------------
-import logging
-from typing import Literal, Optional
-
-from fastapi import BackgroundTasks, HTTPException
-from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
-
-logger = logging.getLogger("morein")
-
-MODEL = "openai/gpt-oss-120b"
-TEMPERATURE = 0.4  # stable, calm, structured
-REQUEST_TIMEOUT = 30  # seconds
+REASONING
+Share conclusions and a short rationale when it helps the user trust the advice. Don't expose raw internal reasoning or step-by-step scratch work.
+"""
 
 MODE_HINTS = {
     "decision": "The user is stuck between options. Lead with options, trade-offs, and a recommendation.",
@@ -359,14 +315,7 @@ STYLE_HINTS = {
 }
 
 
-class MoreinRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
-    mode: Optional[Literal["decision", "reflection", "action"]] = None
-    style: Optional[Literal["concise", "detailed"]] = None
-
-
-def build_system_prompt(mode: Optional[str], style: Optional[str]) -> str:
-    """Append optional mode/style guidance to the base prompt."""
+def build_morein_prompt(mode: Optional[str], style: Optional[str]) -> str:
     extras = [MODE_HINTS[mode]] if mode else []
     if style:
         extras.append(STYLE_HINTS[style])
@@ -375,40 +324,91 @@ def build_system_prompt(mode: Optional[str], style: Optional[str]) -> str:
     return morein_system_prompt + "\n\nSESSION PREFERENCES\n" + "\n".join(extras)
 
 
+# -----------------------------
+# REQUEST MODELS
+# -----------------------------
+class ResearchRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=6000)
+    depth: Optional[str] = None
+    style: Optional[str] = None
+    category: Optional[str] = None
+    preset: Optional[str] = None
+
+
+class CreativeRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=6000)
+    mode: Optional[str] = None
+    style: Optional[str] = None
+
+
+class MoreinRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=6000)
+    mode: Optional[Literal["decision", "reflection", "action"]] = None
+    style: Optional[Literal["concise", "detailed"]] = None
+
+
+# -----------------------------
+# RESEARCH AGENT ROUTE (demo)
+# -----------------------------
+DEMO_LIMIT = 20
+message_counter = defaultdict(int)  # resets whenever the server restarts
+
+
+@app.post("/agent")
+async def agent(payload: ResearchRequest, request: Request, background_tasks: BackgroundTasks):
+    rate_limit(request, "agent")
+
+    ip = client_ip(request)
+    message_counter[ip] += 1
+    if message_counter[ip] > DEMO_LIMIT:
+        return {
+            "response": (
+                f"⚠️ Demo limit reached ({DEMO_LIMIT} messages).\n\n"
+                "Full version coming soon."
+            )
+        }
+
+    user_message = payload.message.strip()
+    user_payload = {
+        "message": user_message,
+        "depth": payload.depth,
+        "style": payload.style,
+        "category": payload.category,
+        "preset": payload.preset,
+    }
+    agent_response = await ask_model(system_prompt, json.dumps(user_payload), 0.7)
+
+    background_tasks.add_task(send_to_formspree, user_message, agent_response)
+    return {"response": agent_response}
+
+
+# -----------------------------
+# CREATIVE QUOTIENT AGENT ROUTE
+# -----------------------------
+@app.post("/creative-agent")
+async def creative_agent(payload: CreativeRequest, request: Request, background_tasks: BackgroundTasks):
+    rate_limit(request, "creative")
+
+    user_message = payload.message.strip()
+    user_payload = {"message": user_message, "mode": payload.mode, "style": payload.style}
+    agent_response = await ask_model(creative_system_prompt, json.dumps(user_payload), 0.9)
+
+    background_tasks.add_task(send_to_formspree, user_message, agent_response)
+    return {"response": agent_response}
+
+
+# -----------------------------
+# MOREIN V.1 — Productivity + Thinking Partner Route
+# -----------------------------
 @app.post("/morein-agent")
-async def morein_agent(payload: MoreinRequest, background_tasks: BackgroundTasks):
+async def morein_agent(payload: MoreinRequest, request: Request, background_tasks: BackgroundTasks):
+    rate_limit(request, "morein")
+
     user_message = payload.message.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
-    try:
-        # The client call is synchronous, so run it off the event loop.
-        completion = await run_in_threadpool(
-            client.chat.completions.create,
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": build_system_prompt(payload.mode, payload.style)},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=TEMPERATURE,
-            timeout=REQUEST_TIMEOUT,
-        )
-        agent_response = (completion.choices[0].message.content or "").strip()
-    except Exception:
-        logger.exception("Morein model call failed")
-        raise HTTPException(status_code=502, detail="Morein is unavailable right now. Please try again.")
+    agent_response = await ask_model(build_morein_prompt(payload.mode, payload.style), user_message, 0.4)
 
-    if not agent_response:
-        raise HTTPException(status_code=502, detail="Morein returned an empty response.")
-
-    # Log after responding so Formspree latency or failure never affects the user.
-    background_tasks.add_task(_safe_send_to_formspree, user_message, agent_response)
-
+    background_tasks.add_task(send_to_formspree, user_message, agent_response)
     return {"response": agent_response}
-
-
-def _safe_send_to_formspree(user_message: str, agent_response: str) -> None:
-    try:
-        send_to_formspree(user_message, agent_response)
-    except Exception:
-        logger.exception("Formspree logging failed")
