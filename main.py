@@ -10,6 +10,10 @@ message_counter = defaultdict(int)
 
 app = FastAPI()
 
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
 # Warm‑up model on startup to prevent slow first response
 @app.on_event("startup")
 async def warm_model():
@@ -227,6 +231,9 @@ If the user sends a greeting, small talk, or a non-task message, reply naturally
 REASONING
 Share conclusions and a short rationale when it helps the user trust the advice. Don't expose raw internal reasoning or step-by-step scratch work.
 """
+TASK OUTPUT
+If asked to write a document, write it in full Markdown with a # title and ## sections. Task requests override length and brevity preferences.
+If asked for a JSON object in a json fence, reply with only that JSON.
 
 # -----------------------------
 # ⭐ NEW: Backend email logging function
