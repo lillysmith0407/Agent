@@ -188,6 +188,45 @@ CHAIN‑OF‑THOUGHT SUPPRESSION
 Never reveal chain-of-thought.
 """
 
+# -----------------------------
+# MOREIN V.1 — Productivity + Thinking Partner Prompt
+# -----------------------------
+morein_system_prompt = """
+You are Morein V.1, Ocean Kalra's Productivity and Thinking Partner.
+
+PURPOSE
+Help the user think clearly, plan effectively, and act with intention.
+
+CORE BEHAVIOR
+- Reduce cognitive load: simplify, don't add.
+- Turn vague ideas into concrete, ordered next steps.
+- Surface decisions and trade-offs, then help the user choose.
+- Prioritize by the user's stated goals, deadlines, and effort vs. impact.
+- Keep a calm, strategic, supportive tone.
+
+BOUNDARIES
+- Don't bury the user in detail. Give what's needed for the next move.
+- Don't do deep academic or research analysis. Offer to hand it to the Research Agent.
+- Don't brainstorm expansively or write imaginative content. Offer to hand it to the Creative Agent.
+- Stay in your identity as Morein. Don't refer to other AI brands or models.
+
+CHOOSE A MODE BASED ON THE USER'S STATE
+- Stuck between options -> Decision-first: name the options, the trade-offs, and your recommendation.
+- Unclear or overwhelmed -> Reflection-first: ask one focused question, then structure their answer.
+- Ready to move -> Action-first: give the next 1-3 steps, with a time estimate if useful.
+
+RESPONSE FORMAT
+- Default to short and structured: a one-line takeaway, then steps or options.
+- Use lists only when they help. Use plain sentences for simple answers.
+- If key information is missing, make a reasonable assumption and state it, or ask at most one clarifying question. Don't interrogate.
+- End with a clear next action when the user is planning or deciding.
+
+CONVERSATIONAL MESSAGES
+If the user sends a greeting, small talk, or a non-task message, reply naturally and briefly. Skip all structure.
+
+REASONING
+Share conclusions and a short rationale when it helps the user trust the advice. Don't expose raw internal reasoning or step-by-step scratch work.
+"""
 
 # -----------------------------
 # ⭐ NEW: Backend email logging function
@@ -284,3 +323,85 @@ async def creative_agent(request: Request):
     send_to_formspree(user_message, agent_response)
 
     return {"response": agent_response}
+
+# -----------------------------
+# MOREIN V.1 — Productivity + Thinking Partner Agent Route
+# -----------------------------
+import logging
+from typing import Literal, Optional
+
+from fastapi import BackgroundTasks, HTTPException
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger("morein")
+
+MODEL = "openai/gpt-oss-120b"
+TEMPERATURE = 0.4  # stable, calm, structured
+REQUEST_TIMEOUT = 30  # seconds
+
+MODE_HINTS = {
+    "decision": "The user is stuck between options. Lead with options, trade-offs, and a recommendation.",
+    "reflection": "The user is unclear or overwhelmed. Ask one focused question, then structure their answer.",
+    "action": "The user is ready to move. Lead with the next 1-3 concrete steps.",
+}
+
+STYLE_HINTS = {
+    "concise": "Keep the response especially brief.",
+    "detailed": "Give a bit more depth, but stay structured.",
+}
+
+
+class MoreinRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    mode: Optional[Literal["decision", "reflection", "action"]] = None
+    style: Optional[Literal["concise", "detailed"]] = None
+
+
+def build_system_prompt(mode: Optional[str], style: Optional[str]) -> str:
+    """Append optional mode/style guidance to the base prompt."""
+    extras = [MODE_HINTS[mode]] if mode else []
+    if style:
+        extras.append(STYLE_HINTS[style])
+    if not extras:
+        return morein_system_prompt
+    return morein_system_prompt + "\n\nSESSION PREFERENCES\n" + "\n".join(extras)
+
+
+@app.post("/morein-agent")
+async def morein_agent(payload: MoreinRequest, background_tasks: BackgroundTasks):
+    user_message = payload.message.strip()
+    if not user_message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    try:
+        # The client call is synchronous, so run it off the event loop.
+        completion = await run_in_threadpool(
+            client.chat.completions.create,
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": build_system_prompt(payload.mode, payload.style)},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=TEMPERATURE,
+            timeout=REQUEST_TIMEOUT,
+        )
+        agent_response = (completion.choices[0].message.content or "").strip()
+    except Exception:
+        logger.exception("Morein model call failed")
+        raise HTTPException(status_code=502, detail="Morein is unavailable right now. Please try again.")
+
+    if not agent_response:
+        raise HTTPException(status_code=502, detail="Morein returned an empty response.")
+
+    # Log after responding so Formspree latency or failure never affects the user.
+    background_tasks.add_task(_safe_send_to_formspree, user_message, agent_response)
+
+    return {"response": agent_response}
+
+
+def _safe_send_to_formspree(user_message: str, agent_response: str) -> None:
+    try:
+        send_to_formspree(user_message, agent_response)
+    except Exception:
+        logger.exception("Formspree logging failed")
